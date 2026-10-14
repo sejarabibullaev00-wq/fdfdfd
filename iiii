@@ -1,0 +1,108 @@
+
+
+
+IF OBJECT_ID('dbo.Orders', 'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.Orders (
+        OrderID INT IDENTITY(1,1) NOT NULL,
+        CustomerID INT NOT NULL,
+        OrderDate DATETIME NOT NULL,
+        Amount DECIMAL(18,2) NOT NULL,
+        Status VARCHAR(20) NOT NULL,
+        Description NVARCHAR(500) NULL
+    );
+END
+GO
+
+
+
+
+IF NOT EXISTS (SELECT * FROM sys.indexes WHERE name = 'PK_Orders_OrderID' AND object_id = OBJECT_ID('dbo.Orders'))
+BEGIN
+    ALTER TABLE dbo.Orders 
+    ADD CONSTRAINT PK_Orders_OrderID PRIMARY KEY CLUSTERED (OrderID);
+END
+GO
+
+
+IF NOT EXISTS (SELECT * FROM sys.indexes WHERE name = 'IX_Orders_CustomerID' AND object_id = OBJECT_ID('dbo.Orders'))
+BEGIN
+    CREATE NONCLUSTERED INDEX IX_Orders_CustomerID 
+    ON dbo.Orders (CustomerID);
+END
+GO
+
+/
+IF NOT EXISTS (SELECT * FROM sys.indexes WHERE name = 'IX_Orders_Status_Filtered' AND object_id = OBJECT_ID('dbo.Orders'))
+BEGIN
+    CREATE NONCLUSTERED INDEX IX_Orders_Status_Filtered 
+    ON dbo.Orders (Status)
+    WHERE Status = 'Completed'; -- Фильтр: индексируем только завершенные заказы
+END
+GO
+
+/
+IF NOT EXISTS (SELECT * FROM sys.indexes WHERE name = 'NCCI_Orders_Columnstore' AND object_id = OBJECT_ID('dbo.Orders'))
+BEGIN
+    CREATE NONCLUSTERED COLUMNSTORE INDEX NCCI_Orders_Columnstore
+    ON dbo.Orders (OrderDate, Amount, Status);
+END
+GO
+
+/
+
+
+IF NOT EXISTS (SELECT * FROM sys.filegroups WHERE name = 'FG_SlowTables')
+BEGIN
+    ALTER DATABASE CURRENT ADD FILEGROUP FG_SlowTables;
+    
+  
+    ALTER DATABASE CURRENT 
+    ADD FILE (
+        NAME = 'SlowTables_Data',
+        FILENAME = 'C:\SQLData\SlowTables_Data.ndf', -- <-- ИЗМЕНИТЕ ПУТЬ ПРИ НЕОБХОДИМОСТИ
+        SIZE = 10MB,
+        MAXSIZE = UNLIMITED,
+        FILEGROWTH = 5MB
+    ) TO FILEGROUP FG_SlowTables;
+END
+GO
+
+
+IF NOT EXISTS (SELECT * FROM sys.filegroups WHERE name = 'FG_FastTables')
+BEGIN
+    ALTER DATABASE CURRENT ADD FILEGROUP FG_FastTables;
+    
+    ALTER DATABASE CURRENT 
+    ADD FILE (
+        NAME = 'FastTables_Data',
+        FILENAME = 'C:\SQLData\FastTables_Data.ndf', -- <-- ИЗМЕНИТЕ ПУТЬ ПРИ НЕОБХОДИМОСТИ
+        SIZE = 10MB,
+        MAXSIZE = UNLIMITED,
+        FILEGROWTH = 5MB
+    ) TO FILEGROUP FG_FastTables;
+END
+GO
+
+/
+IF OBJECT_ID('dbo.ArchiveLogs', 'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.ArchiveLogs (
+        LogID INT IDENTITY(1,1) PRIMARY KEY,
+        LogMessage NVARCHAR(MAX),
+        LogDate DATETIME DEFAULT GETDATE()
+    ) ON FG_SlowTables; -- Явно указываем файловую группу
+END
+GO
+
+
+IF OBJECT_ID('dbo.ActiveSessions', 'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.ActiveSessions (
+        SessionID UNIQUEIDENTIFIER DEFAULT NEWID() PRIMARY KEY,
+        UserID INT NOT NULL,
+        LastActivity DATETIME DEFAULT GETDATE()
+    ) ON FG_FastTables; -- Явно указываем файловую группу
+END
+GO
+
